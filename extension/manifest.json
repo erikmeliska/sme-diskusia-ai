@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "SME Diskusia AI",
+  "version": "0.2.0",
+  "description": "Hodnotí príspevky v diskusiách na sme.sk (TypeSafe) a pod článkom zhrnie najhodnotnejšie (Gemini).",
+  "permissions": ["storage", "unlimitedStorage"],
+  "host_permissions": [
+    "https://api.typesafe.ai/*",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://*.sme.sk/*"],
+      "js": ["lib/text.js", "lib/forum.js", "lib/stats.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "action": { "default_title": "SME Diskusia AI – nastavenia" },
+  "icons": { "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}

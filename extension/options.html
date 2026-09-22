@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="sk">
+<head>
+  <meta charset="utf-8">
+  <title>SME Diskusia AI – nastavenia</title>
+  <style>
+    :root { --bg:#fff; --fg:#1f2328; --mut:#6b7280; --bd:#d1d5db; --acc:#7c3aed; --ok:#16a34a; --err:#dc2626; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#18181b; --fg:#e5e7eb; --mut:#9ca3af; --bd:#3f3f46; } }
+    body { background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px; }
+    h1 { font-size: 22px; } h2 { font-size: 16px; margin-top: 28px; border-bottom: 1px solid var(--bd); padding-bottom: 4px; }
+    label { display: grid; grid-template-columns: 220px 1fr; gap: 12px; align-items: center; margin: 10px 0; }
+    label.check { grid-template-columns: auto 1fr; }
+    input[type=text], input[type=password], input[type=number] { padding: 6px 8px; border: 1px solid var(--bd); border-radius: 6px; background: transparent; color: inherit; font: inherit; }
+    input[type=number] { width: 90px; }
+    .hint { color: var(--mut); font-size: 12px; grid-column: 2; margin-top: -8px; }
+    .row { display: flex; gap: 10px; margin-top: 24px; align-items: center; flex-wrap: wrap; }
+    button { border: 1px solid var(--bd); background: transparent; color: inherit; border-radius: 6px; padding: 7px 14px; cursor: pointer; font: inherit; }
+    button.primary { background: var(--acc); border-color: var(--acc); color: #fff; }
+    #msg { color: var(--mut); } .ok { color: var(--ok) !important; } .err { color: var(--err) !important; }
+  </style>
+</head>
+<body>
+  <h1>SME Diskusia AI</h1>
+  <p style="color:var(--mut)">Kľúče sa ukladajú iba lokálne v tomto prehliadači (<code>chrome.storage.local</code>) a používa ich len service worker rozšírenia.</p>
+
+  <h2>API kľúče</h2>
+  <label>TypeSafe API kľúč <input id="typesafeKey" type="password" autocomplete="off"></label>
+  <div class="hint">Hodnotenie príspevkov (model Jev). ~0,00007 $ za príspevok, výsledky sa cachujú.</div>
+  <label>Gemini API kľúč <input id="geminiKey" type="password" autocomplete="off"></label>
+  <label>Gemini model <input id="geminiModel" type="text"></label>
+  <div class="hint">Napr. gemini-3.5-flash-lite, gemini-3.1-flash-lite.</div>
+
+  <h2>Kde sa zapína</h2>
+  <label class="check"><input id="enableDiscussion" type="checkbox"> Stránka diskusie – farebné hodnotenie príspevkov</label>
+  <label class="check"><input id="enableArticle" type="checkbox"> Stránka článku – rozbaľovací blok pod nadpisom</label>
+  <label class="check"><input id="articleAutoLoad" type="checkbox"> Na článku diskusiu stiahnuť a ohodnotiť hneď (inak až tlačidlom; uložený stav sa ukáže vždy)</label>
+  <label class="check"><input id="autoSummary" type="checkbox"> Prvé zhrnutie vygenerovať automaticky (ďalšie vždy len tlačidlom „Regenerovať“)</label>
+  <label class="check"><input id="autoExpand" type="checkbox"> Automaticky načítať všetky príspevky (tlačidlo „Zobraziť ďalších“)</label>
+
+  <h2>Skrývanie</h2>
+  <label class="check"><input id="hideHate" type="checkbox"> Skrývať xenofóbne príspevky</label>
+  <label class="check"><input id="hideLowQuality" type="checkbox"> Skrývať príspevky bez prínosu</label>
+  <label class="check"><input id="hideRead" type="checkbox"> Skrývať prečítané príspevky (pri ďalšej návšteve diskusie uvidím len nové)</label>
+  <label>Prečítané po (ms viditeľnosti) <input id="readDwellMs" type="number" step="250" min="250" max="10000"></label>
+  <div class="hint">Príspevok sa počíta za prečítaný, keď je aspoň z polovice na obrazovke takto dlho. Prečítaný príspevok s novou reakciou zostane ako skrátený kontext.</div>
+  <label>Prah xenofóbie <input id="hateThreshold" type="number" step="0.05" min="0" max="1"></label>
+
+  <h2>Skóre kvality</h2>
+  <label>Váha: prínos <input id="w_substance" type="number" step="0.05" min="0" max="1"></label>
+  <label>Váha: relevancia <input id="w_relevance" type="number" step="0.05" min="0" max="1"></label>
+  <label>Váha: kvalita vyjadrovania <input id="w_writing" type="number" step="0.05" min="0" max="1"></label>
+  <label>Postih: osobný útok <input id="attackPenalty" type="number" step="0.05" min="0" max="1"></label>
+  <label>Postih: vulgarizmy <input id="vulgarPenalty" type="number" step="0.05" min="0" max="1"></label>
+  <label>Pod týmto skryť (bez prínosu) <input id="t_hidden" type="number" step="0.05" min="0" max="1"></label>
+  <label>Pod týmto červená <input id="t_red" type="number" step="0.05" min="0" max="1"></label>
+  <label>Pod týmto žltá, inak zelená <input id="t_yellow" type="number" step="0.05" min="0" max="1"></label>
+
+  <h2>Zhrnutie a limity</h2>
+  <label>Počet top príspevkov <input id="topN" type="number" min="3" max="40"></label>
+  <label>Max. príspevkov na hodnotenie <input id="maxPosts" type="number" min="10" max="5000"></label>
+  <label>Gemini cena vstup $/1M <input id="geminiPriceIn" type="number" step="0.01" min="0"></label>
+  <label>Gemini cena výstup $/1M <input id="geminiPriceOut" type="number" step="0.01" min="0"></label>
+  <div class="hint">0 = podľa tabuľky pre zvolený model (3.5 Flash-Lite: 0,30 / 2,50 $).</div>
+
+  <h2>Náklady spolu</h2>
+  <div id="costs" style="color:var(--mut)">…</div>
+
+  <div class="row">
+    <button class="primary" id="save">Uložiť</button>
+    <button id="test">Otestovať kľúče</button>
+    <button id="clear">Vymazať cache hodnotení a zhrnutí</button>
+    <button id="clearRead">Vymazať prečítané</button>
+    <button id="resetCosts">Vynulovať náklady</button>
+    <span id="msg"></span>
+  </div>
+  <script src="lib/policy.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

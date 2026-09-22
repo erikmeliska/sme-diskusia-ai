@@ -1,0 +1,10 @@
+# Dáta PoC – stiahnuté komentáre skutočných diskutujúcich zo sme.sk, nepublikovať
+poc/*.json
+
+# lokálne
+.DS_Store
+node_modules/
+.playwright-mcp/
+.env
+.env.*
+*.log

@@ -1,0 +1,27 @@
+/* Dekorácie príspevkov na stránke diskusie (mimo Shadow DOM, prefix smeai-) */
+.smeai-post { border-left: 5px solid #9ca3af !important; padding-left: 8px !important; }
+.smeai-c-green { border-left-color: #16a34a !important; background: rgba(22, 163, 74, .06); }
+.smeai-c-yellow { border-left-color: #ca8a04 !important; }
+.smeai-c-red { border-left-color: #dc2626 !important; background: rgba(220, 38, 38, .04); }
+.smeai-c-low, .smeai-c-hate { border-left-color: #9ca3af !important; }
+.smeai-badge { font: 11px/1.4 system-ui, sans-serif; margin: 2px 0 4px; color: #6b7280; }
+.smeai-c-green .smeai-badge { color: #16a34a; }
+.smeai-c-yellow .smeai-badge { color: #a16207; }
+.smeai-c-red .smeai-badge { color: #dc2626; }
+.smeai-ph { display: none; font: italic 12px system-ui, sans-serif; color: #6b7280 !important; }
+.smeai-hide-on .smeai-hidden:not(.smeai-revealed) .anz-post__content-text { display: none !important; }
+.smeai-hide-on .smeai-hidden:not(.smeai-revealed) .smeai-ph { display: inline; }
+.smeai-hide-on .smeai-hidden:not(.smeai-revealed) { opacity: .75; }
+
+/* Prečítané z minulých návštev (trieda smeai-hideread na <html>) */
+.smeai-ctxph { display: none; font: italic 12px system-ui, sans-serif; color: #6b7280 !important; }
+.smeai-hideread .smeai-read:not(.smeai-revealed) { display: none !important; }
+.smeai-hideread .smeai-readctx:not(.smeai-revealed) { opacity: .55; }
+.smeai-hideread .smeai-readctx:not(.smeai-revealed) .anz-post__content-text,
+.smeai-hideread .smeai-readctx:not(.smeai-revealed) .anz-post__footer,
+.smeai-hideread .smeai-readctx:not(.smeai-revealed) .smeai-badge,
+.smeai-hideread .smeai-readctx:not(.smeai-revealed) .smeai-ph { display: none !important; }
+.smeai-hideread .smeai-readctx:not(.smeai-revealed) .smeai-ctxph { display: inline; }
+
+/* preskok zo zhrnutia na príspevok */
+.smeai-flash { box-shadow: 0 0 0 3px #7c3aed; transition: box-shadow .3s; }
