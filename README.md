@@ -122,3 +122,6 @@ Test bundle spúšťa v stránke skutočný `background.js`; falošné sú len `
 - Selektory `.anz-post[data-post-id]`, `[data-topic-id]` a API `core-forum.sme.sk` nie sú verejne zdokumentované a môžu sa zmeniť.
 - Kľúče sú v `chrome.storage.local` nešifrované, čo je v poriadku pre osobné použitie. Pri distribúcii iným ľuďom treba vlastný backend.
 - AI zhrnutie môže byť nepresné. Vychádza len z vybraných príspevkov a nie je zhrnutím článku.
+
+## Licencia
+[MIT](LICENSE) © 2026 Erik Meliska
