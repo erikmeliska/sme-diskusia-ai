@@ -1,7 +1,7 @@
 // Shim pre test v živom tabe bez nainštalovaného rozšírenia (napr. Playwright addScriptTag).
 // V stránke beží SKUTOČNÝ background.js; falošné sú len chrome.* (storage v localStorage → prežije reload)
 // a externé AI API (TypeSafe/Gemini) – do stránky sa tak nedostanú žiadne kľúče. Fórum sme.sk je skutočné.
-// Počty volaní: window.__mockCalls = { ts, gm }.
+// Počty volaní: window.__mockCalls = { ts, gm }. Simulácia zlyhania: window.__mockFail = { ts: 401, gm: 400 }.
 (() => {
   const LS_KEY = "__smeai_test_store";
   const load = () => { try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch { return {}; } };
@@ -26,6 +26,8 @@
 
   // ---- falošné AI API ----
   const calls = (window.__mockCalls = { ts: 0, gm: 0 });
+  window.__mockFail = window.__mockFail || {};
+  const failWith = (status, message) => new Response(JSON.stringify({ error: { code: status, message } }), { status, headers: { "Content-Type": "application/json" } });
   const { hash } = globalThis.SmeAI;
   const HATE = /bazmek|pakist|palist|tadžik|scum|kraplak|cigán/i;
   function tsAnswers(text) {
@@ -44,12 +46,14 @@
   async function bgFetch(url, init) {
     if (String(url).includes("api.typesafe.ai")) {
       calls.ts++;
+      if (window.__mockFail.ts) return failWith(window.__mockFail.ts, "Invalid API key");
       const body = JSON.parse(init.body);
       await new Promise((r) => setTimeout(r, 15));
       return respond({ model: "jev-mock", answers: tsAnswers(body.state.comment), usage: { input_tokens: 1750 } });
     }
     if (String(url).includes("generativelanguage")) {
       calls.gm++;
+      if (window.__mockFail.gm) return failWith(window.__mockFail.gm, "API key not valid. Please pass a valid API key.");
       const prompt = JSON.parse(init.body).contents[0].parts[0].text;
       const ids = [...prompt.matchAll(/^\[(\d+)\]/gm)].map((m) => m[1]);
       await new Promise((r) => setTimeout(r, 200));

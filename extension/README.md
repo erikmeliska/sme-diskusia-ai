@@ -1,4 +1,4 @@
-# SME Diskusia AI (Chrome rozšírenie, MV3) – v0.2
+# SME Diskusia AI (Chrome rozšírenie, MV3) – v0.3
 
 Hodnotí príspevky v diskusiách na sme.sk (TypeSafe/Jev), zhŕňa najhodnotnejšie (Gemini) a ukazuje štatistiky aj náklady. Návrh a zistenia o API sme.sk sú v [PLAN.md](PLAN.md).
 
@@ -43,9 +43,21 @@ Blok ukazuje cenu **tohto načítania** (TypeSafe), súčet **za diskusiu** (Typ
 - TypeSafe: ~1 750 tokenov na príspevok × 0,042 $/1M ≈ 0,00007 $. Diskusia so 120 príspevkami stojí ~0,009 $.
 - Gemini 3.5 Flash-Lite (0,30 / 2,50 $ za 1M): ~1 750 vstupných + ~750 výstupných tokenov ≈ **0,0023 $ za zhrnutie**.
 
+## Chýbajúce alebo neplatné kľúče
+| situácia | správanie |
+|---|---|
+| chýba TypeSafe kľúč | blok ukáže „doplň TypeSafe kľúč“ + **Otvoriť nastavenia**, nič sa nevolá |
+| chýba Gemini kľúč | hodnotenie funguje, pri zhrnutí je výzva na doplnenie kľúča |
+| TypeSafe kľúč zrušený (401/403) | príspevky z cache sa zobrazia, nové ostanú „neohodnotené“; upozornenie „TypeSafe odmietol API kľúč… Neohodnotených príspevkov: N“ + **Otvoriť nastavenia** / **Skúsiť znova** (dohodnotí len chýbajúce a prekreslí ich) |
+| Gemini kľúč zrušený (400 API_KEY_INVALID / 401 / 403) | existujúce zhrnutie ostane, upozornenie „Gemini odmietol API kľúč“ + **Otvoriť nastavenia** |
+| preťaženie / limit (429, 529) | automatické opakovanie so spätným odstupom (4×), potom upozornenie + **Skúsiť znova** |
+| neexistujúci model Gemini (404) | upozornenie „skontroluj názov modelu“ |
+
+Neúspešné volania sa neukladajú do cache ani nezapočítavajú do nákladov. Upozornenie nikdy neprepíše už zobrazený stav z cache.
+
 ## Vývoj a testy
 ```bash
-node --test tests/*.test.js                                          # 24 testov: lib/ + service worker vo vm s falošným chrome.*
+node --test tests/*.test.js                                          # 25 testov: lib/ + service worker vo vm s falošným chrome.* a API
 TYPESAFE_API_KEY=... GEMINI_API_KEY=... node scripts/live-check.mjs  # živý TypeSafe + Gemini (potrebuje lokálne dáta PoC)
 node tests/build-test-bundle.mjs /tmp/bundle.js                      # bundle na injektovanie do stránky (Playwright addScriptTag)
 ```

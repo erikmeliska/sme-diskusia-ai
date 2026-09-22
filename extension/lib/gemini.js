@@ -64,7 +64,14 @@
         generationConfig: { temperature: 0.2, responseMimeType: "application/json", responseSchema: SCHEMA },
       }),
     });
-    if (!r.ok) throw new Error(`Gemini HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`);
+    if (!r.ok) {
+      const text = (await r.text()).slice(0, 300);
+      const err = new Error(`Gemini HTTP ${r.status}: ${text}`);
+      err.status = r.status;
+      // neplatný/zrušený kľúč: 401/403, alebo 400 s API_KEY_INVALID
+      err.keyInvalid = r.status === 401 || r.status === 403 || (r.status === 400 && /API[_ ]?KEY/i.test(text));
+      throw err;
+    }
     return parseResponse(await r.json());
   }
 

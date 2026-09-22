@@ -50,6 +50,8 @@ API kľúče, model Gemini, kedy sa čo spúšťa, skrývanie, váhy a prahy sk�
 
 Kľúče sú uložené len lokálne v `chrome.storage.local` a používa ich iba service worker rozšírenia. Do stránky sme.sk sa nedostanú.
 
+Ak kľúč chýba alebo ho neskôr zrušíš, blok to jasne povie („TypeSafe/Gemini odmietol API kľúč…“) a ponúkne **Otvoriť nastavenia** a **Skúsiť znova**. Už zobrazené výsledky z cache ostanú, neúspešné volania sa neúčtujú. Podrobnosti sú v [extension/README.md](extension/README.md#chýbajúce-alebo-neplatné-kľúče).
+
 ## Náklady (namerané)
 | | cena | poznámka |
 |---|---|---|
@@ -105,13 +107,14 @@ Zaujímavosť: hodnotenie takmer nesúvisí s 👍 čitateľov (Spearman ~0 až 
 ## Vývoj a testy
 ```bash
 cd extension
-node --test tests/*.test.js                          # 24 testov: knižnice + service worker vo vm s falošným chrome.* a API
+node --test tests/*.test.js                          # 25 testov: knižnice + service worker vo vm s falošným chrome.* a API
 node tests/build-test-bundle.mjs /tmp/bundle.js      # bundle na injektovanie do stránky (Playwright addScriptTag)
 ```
 Integračný test service workera overuje, že sa nič neplatí dvakrát:
 - rovnaký príspevok sa neohodnotí dvakrát ani pri dvoch súbežných taboch,
 - zhrnutie vzniká len na požiadanie,
-- pohľad z cache nevolá API.
+- pohľad z cache nevolá API,
+- zrušené kľúče dajú zrozumiteľnú chybu a čiastočné výsledky z cache.
 
 Test bundle spúšťa v stránke skutočný `background.js`; falošné sú len `chrome.*` a AI API. Takto vznikli aj screenshoty, s rozmazanými menami diskutujúcich.
 

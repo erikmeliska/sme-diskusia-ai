@@ -45,9 +45,11 @@ function makeEnv(settings) {
     action: { onClicked: { addListener() {} } },
   };
   const calls = { ts: 0, gm: 0, tsTexts: [] };
+  const fail = {}; // { ts: HTTP status, gm: HTTP status } – simulácia zrušeného kľúča / preťaženia
   const fetch = async (url, init) => {
     if (url.includes("api.typesafe.ai")) {
       calls.ts++;
+      if (fail.ts) return res({ detail: "Invalid API key" }, fail.ts);
       const body = JSON.parse(init.body);
       calls.tsTexts.push(body.state.comment);
       await new Promise((r) => setTimeout(r, 5));
@@ -55,6 +57,7 @@ function makeEnv(settings) {
     }
     if (url.includes("generativelanguage")) {
       calls.gm++;
+      if (fail.gm) return res({ error: { code: fail.gm, message: "API key not valid. Please pass a valid API key.", status: "INVALID_ARGUMENT" } }, fail.gm);
       const prompt = JSON.parse(init.body).contents[0].parts[0].text;
       const ids = [...prompt.matchAll(/^\[(\d+)\]/gm)].map((m) => m[1]);
       const out = { summary: "Zhrnutie", key_points: [{ point: "Bod", post_ids: ids.slice(0, 2) }], agreements: "", disagreements: "" };
@@ -77,7 +80,7 @@ function makeEnv(settings) {
       send: (m) => pl.forEach((f) => f(m)),
       // počká na n-tý (od konca nových) state/summary_error/error
       async next(types = ["state", "error", "summary_error"], from = inbox.length) {
-        for (let i = 0; i < 400; i++) {
+        for (let i = 0; i < 3000; i++) {
           const m = inbox.slice(from).find((x) => types.includes(x.type));
           if (m) return m;
           await new Promise((r) => setTimeout(r, 5));
@@ -90,7 +93,7 @@ function makeEnv(settings) {
     return port;
   }
   const message = (msg) => new Promise((resolve) => L.message.forEach((f) => f(msg, {}, resolve)));
-  return { store, calls, connect, message };
+  return { store, calls, fail, connect, message };
 }
 
 const article = { title: "Článok", summary: "Perex" };
@@ -233,4 +236,60 @@ test("prečítané, chýbajúce kľúče a mazanie cache", async () => {
   const se = await pg.request({ type: "regenerate" }, ["summary_error", "state"]);
   assert.equal(se.code, "nokey");
   assert.equal(noGm.calls.gm, 0);
+});
+
+test("zrušené kľúče: zrozumiteľné chyby, čiastočné výsledky z cache, nič sa neuloží ani nezaplatí", async () => {
+  const env = makeEnv({});
+  const posts = [post(longText(400), 1), post(longText(401), 2), post(longText(402), 3)];
+  const ok = await env.connect().request(analyzeMsg("T7", posts));
+  assert.equal(ok.failure, null);
+
+  // TypeSafe kľúč zrušený: staré príspevky z cache, nové zlyhajú → state s failure badkey
+  env.fail.ts = 401;
+  const more = [...posts, post(longText(403), 4), post(longText(404), 5)];
+  const partial = await env.connect().request(analyzeMsg("T7", more));
+  assert.equal(partial.type, "state");
+  assert.equal(partial.failure.code, "badkey");
+  assert.equal(partial.failure.failed, 2);
+  assert.match(partial.failure.message, /odmietol API kľúč/);
+  assert.equal(partial.stats.scored, 3, "3 z cache ostanú ohodnotené");
+  assert.equal(partial.posts.filter((p) => !p.answers).length, 2);
+  assert.equal(partial.run.tsPosts, 0);
+  assert.equal(partial.costs.tsPosts, 3, "neúspešné volania sa neúčtujú");
+  const tsCalls = env.calls.ts;
+
+  // úplne nová diskusia so zrušeným kľúčom → error badkey (1 request, potom stop)
+  const bad = await env.connect().request(analyzeMsg("T8", [post(longText(500), 1), post(longText(501), 2)]));
+  assert.equal(bad.type, "error");
+  assert.equal(bad.code, "badkey");
+  assert.ok(env.calls.ts - tsCalls <= 2);
+
+  // preťaženie (429) → code busy, bez nekonečného opakovania
+  env.fail.ts = 429;
+  const busy = await env.connect().request(analyzeMsg("T9", [post(longText(600), 1)]));
+  assert.equal(busy.code, "busy");
+
+  // kľúč opravený → „Skúsiť znova“ dohodnotí len chýbajúce
+  env.fail.ts = 0;
+  const before = env.calls.ts;
+  const fixed = await env.connect().request(analyzeMsg("T7", more));
+  assert.equal(fixed.failure, null);
+  assert.equal(env.calls.ts - before, 2);
+  assert.equal(fixed.stats.scored, 5);
+
+  // Gemini kľúč zrušený: existujúce zhrnutie zostane, chyba badkey, nič sa nezaúčtuje
+  const p = env.connect();
+  await p.request(analyzeMsg("T7", more));
+  const s1 = await p.request({ type: "regenerate" }, ["state", "summary_error"]);
+  assert.ok(s1.summary);
+  env.fail.gm = 400;
+  const gerr = await p.request({ type: "regenerate" }, ["state", "summary_error"]);
+  assert.equal(gerr.type, "summary_error");
+  assert.equal(gerr.code, "badkey");
+  assert.match(gerr.message, /Gemini odmietol API kľúč/);
+  assert.equal(env.store["topic:T7"].summary.data.summary, "Zhrnutie", "staré zhrnutie ostalo");
+  assert.equal(env.store["topic:T7"].costs.gmRuns, 1);
+  env.fail.gm = 404;
+  const nomodel = await p.request({ type: "regenerate" }, ["state", "summary_error"]);
+  assert.equal(nomodel.code, "model");
 });

@@ -72,6 +72,22 @@ async function recordCosts(topicId, delta, patch) {
   return topic;
 }
 
+// ---------- zrozumiteľné chyby ----------
+function typesafeFailure(errors) {
+  if (!errors.length) return null;
+  const auth = errors.find((e) => e.status === 401 || e.status === 403);
+  if (auth) return { code: "badkey", failed: errors.length, message: `TypeSafe odmietol API kľúč (HTTP ${auth.status}) – je neplatný alebo zrušený. Oprav ho v nastaveniach.` };
+  const rate = errors.find((e) => e.status === 429 || e.status === 529);
+  if (rate) return { code: "busy", failed: errors.length, message: `TypeSafe je preťažený alebo sa minul limit (HTTP ${rate.status}). Skús to o chvíľu znova.` };
+  return { code: "typesafe", failed: errors.length, message: `Hodnotenie zlyhalo: ${errors[0].error.slice(0, 160)}` };
+}
+function geminiFailure(e) {
+  if (e.keyInvalid) return { code: "badkey", message: `Gemini odmietol API kľúč (HTTP ${e.status}) – je neplatný alebo zrušený. Oprav ho v nastaveniach.` };
+  if (e.status === 429) return { code: "busy", message: "Gemini: minul sa limit požiadaviek (HTTP 429). Skús to neskôr." };
+  if (e.status === 404) return { code: "model", message: "Gemini model neexistuje alebo nie je dostupný – skontroluj názov modelu v nastaveniach." };
+  return { code: "gemini", message: `Zhrnutie zlyhalo: ${String(e.message || e).slice(0, 200)}` };
+}
+
 // ---------- analýza ----------
 async function analyze(ctx, send, msg) {
   const settings = await loadSettings();
@@ -84,14 +100,16 @@ async function analyze(ctx, send, msg) {
   const r = await S.scoreAll(fetch, settings.typesafeKey, ctx.article, ctx.posts, {
     cache, inflight, onProgress: (done, total) => send({ type: "progress", phase: "score", done, total }),
   });
-  if (r.results.size === 0 && r.errors.length) return send({ type: "error", code: "typesafe", message: r.errors[0].error });
+  const fail = typesafeFailure(r.errors);
+  if (r.results.size === 0 && fail) return send({ type: "error", ...fail });
   ctx.answers = r.results;
 
   const run = { tsTokens: r.tokens, tsUsd: S.typesafeUsd(r.tokens), tsPosts: r.scoredNew };
   const topic = await recordCosts(ctx.topicId, run, { title: ctx.article.title });
   const read = (await get(`read:${ctx.topicId}`)) || { ids: {} };
   const view = buildView(ctx, settings, topic);
-  send({ ...view, run: { ...run, cached: r.cached, errors: r.errors.length, seconds: (Date.now() - t0) / 1000 }, readIds: Object.keys(read.ids) });
+  // čiastočné zlyhanie: z cache sa zobrazí, čo sa dá; UI ukáže upozornenie a „Skúsiť znova“
+  send({ ...view, run: { ...run, cached: r.cached, errors: r.errors.length, seconds: (Date.now() - t0) / 1000 }, failure: fail, readIds: Object.keys(read.ids) });
 
   if (msg.summarize) await generateSummary(ctx, send);
   else if (!topic.summary && settings.autoSummary) await generateSummary(ctx, send, { auto: true });
@@ -138,7 +156,7 @@ async function generateSummary(ctx, send, { auto = false } = {}) {
     })();
     summarizing.set(ctx.topicId, job);
     try { await job; } catch (e) {
-      return send({ type: "summary_error", code: "gemini", message: String(e.message || e) });
+      return send({ type: "summary_error", ...geminiFailure(e) });
     } finally { summarizing.delete(ctx.topicId); }
   }
   send(buildView(ctx, await loadSettings(), await get(`topic:${ctx.topicId}`)));

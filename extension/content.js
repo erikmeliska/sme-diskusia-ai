@@ -83,7 +83,7 @@
   // Blok „AI prehľad diskusie“ (Shadow DOM) – rovnaký na článku aj v diskusii
   // =====================================================================
   // placement: "before" | "after" anchor; collapsed: začne zbalený; onLoad({summarize}) – stiahnuť a ohodnotiť (článok)
-  function createPanel(anchor, { placement = "before", collapsed = false, compact, postsById, onRef, tracker, onLoad, onNoCache }) {
+  function createPanel(anchor, { placement = "before", collapsed = false, compact, postsById, onRef, tracker, onLoad, onNoCache, onRetry }) {
     const host = el("div", { id: "smeai-panel" });
     const root = host.attachShadow({ mode: "open" });
     root.append(el("style", { text: PANEL_CSS }));
@@ -92,10 +92,28 @@
     const status = el("div", { class: "status", text: "Načítavam…" });
     const prog = el("progress", { max: "1", value: "0", hidden: true });
     const body = el("div", { class: "body" });
+    const banner = el("div", { class: "banner", hidden: true });
     const panelEl = el("div", { class: collapsed ? "panel closed" : "panel" },
       el("div", { class: "head", role: "button", tabindex: "0", title: "Rozbaliť / zbaliť", onclick: (e) => { if (!e.target.closest(".icon")) panelEl.classList.toggle("closed"); } },
         el("span", { class: "arrow" }), title, hint, el("button", { class: "icon", title: "Nastavenia", text: "⚙", onclick: openOptions })),
-      el("div", { class: "content" }, status, prog, body));
+      el("div", { class: "content" }, status, prog, banner, body));
+
+    // Upozornenie (neplatný kľúč, preťaženie…) – nezmaže zobrazené dáta. retry: funkcia pre „Skúsiť znova“.
+    const KEY_CODES = ["nokey", "badkey", "model"];
+    function showBanner(m, retry) {
+      banner.hidden = false;
+      banner.replaceChildren(el("div", { text: "⚠ " + m.message }), el("div", { class: "actions" },
+        KEY_CODES.includes(m.code) ? el("button", { class: "btn small", text: "Otvoriť nastavenia", onclick: openOptions }) : null,
+        retry && m.code !== "nokey" ? el("button", { class: "btn small ghost", text: "Skúsiť znova", onclick: () => { banner.hidden = true; retry(); } }) : null));
+      if (KEY_CODES.includes(m.code)) panelEl.classList.remove("closed");
+    }
+    const hideBanner = () => { banner.hidden = true; };
+    const retrySummary = () => {
+      summaryBusy = true;
+      render(last);
+      if (last && last.fromCache && onLoad) onLoad({ summarize: true });
+      else port.postMessage({ type: "regenerate" });
+    };
     root.append(panelEl);
     anchor[placement](host);
 
@@ -135,13 +153,8 @@
     }
 
     function regenButton(s, label, quiet) {
-      return el("button", { class: quiet ? "btn ghost" : "btn", text: `${label} (~${usd(s.estUsd)})`, onclick: () => {
-        summaryBusy = true;
-        render(last);
-        // pohľad z cache môže byť zastaraný → najprv dotiahni nové príspevky, potom zhrň
-        if (s.fromCache && onLoad) onLoad({ summarize: true });
-        else port.postMessage({ type: "regenerate" });
-      } });
+      // pohľad z cache môže byť zastaraný → retrySummary najprv dotiahne nové príspevky, potom zhrnie
+      return el("button", { class: quiet ? "btn ghost" : "btn", text: `${label} (~${usd(s.estUsd)})`, onclick: () => { hideBanner(); retrySummary(); } });
     }
 
     function postCard(p, rank, s, basis) {
@@ -220,9 +233,25 @@
           m.byId = new Map(m.posts.map((p) => [p.id, p]));
           summaryBusy = false;
           render(m);
+          if (m.failure) showBanner({ ...m.failure, message: `${m.failure.message} Neohodnotených príspevkov: ${m.failure.failed}.` }, onRetry);
+          else hideBanner();
         } else if (m.type === "summary_progress") { summaryBusy = true; render(last); }
-        else if (m.type === "summary_error") { summaryBusy = false; if (last) { last.summaryError = m.message; render(last); } }
-        else if (m.type === "error") { prog.hidden = true; setStatus(m.message, true); if (m.code === "nokey") body.replaceChildren(el("button", { class: "btn", text: "Otvoriť nastavenia", onclick: openOptions })); }
+        else if (m.type === "summary_error") {
+          summaryBusy = false;
+          if (last) { last.summaryError = m.message; render(last); }
+          if (m.code !== "nokey" && m.code !== "few") showBanner(m, m.code === "badkey" || m.code === "model" ? null : retrySummary);
+        } else if (m.type === "error") {
+          prog.hidden = true;
+          summaryBusy = false;
+          if (last) { render(last); showBanner(m, onRetry); } // ponechaj zobrazený (uložený) stav
+          else {
+            setStatus(m.message, true);
+            body.replaceChildren(...[
+              KEY_CODES.includes(m.code) ? el("button", { class: "btn", text: "Otvoriť nastavenia", onclick: openOptions }) : null,
+              onRetry && m.code !== "nokey" ? el("button", { class: "btn ghost", text: "Skúsiť znova", onclick: () => { setStatus("Skúšam znova…"); onRetry(); } }) : null,
+            ].filter(Boolean));
+          }
+        }
       },
     };
   }
@@ -287,7 +316,8 @@
       node.classList.add("smeai-flash");
       setTimeout(() => node.classList.remove("smeai-flash"), 1500);
     };
-    const panel = createPanel(topicEl, { compact: true, postsById, onRef: scrollToPost, tracker });
+    let port = null;
+    const panel = createPanel(topicEl, { compact: true, postsById, onRef: scrollToPost, tracker, onRetry: () => port.postMessage(analyzeMsg(topic, posts, article)) });
     panel.setStatus(`Načítaných ${posts.length} príspevkov, hodnotím…`);
 
     // --- dock s ovládaním ---
@@ -354,13 +384,29 @@
         el("button", { class: "link", text: "Nastavenia", onclick: openOptions }));
     }
 
+    // po „Skúsiť znova“ prekresli príspevky, ktoré boli predtým neohodnotené
+    function undecorate(postEl) {
+      delete postEl.dataset.smeai;
+      postEl.classList.forEach((c) => { if (/^smeai-(post|c-|hidden$)/.test(c)) postEl.classList.remove(c); });
+      postEl.querySelectorAll(".smeai-badge, .smeai-ph").forEach((n) => n.remove());
+    }
+
     let started = false;
-    const port = connect(panel, (m) => {
+    port = connect(panel, (m) => {
       if (m.type === "progress") dstatus.textContent = `Hodnotím príspevky: ${m.done} / ${m.total}`;
-      if (m.type === "error") dstatus.textContent = m.message;
+      if (m.type === "error") { dstatus.textContent = "⚠ " + m.message; dstatus.classList.add("err"); }
       if (m.type !== "state") return;
+      const prev = data;
       data = new Map(m.posts.map((p) => [p.id, p]));
-      dstatus.textContent = `Ohodnotených ${m.stats.scored} príspevkov`;
+      dstatus.classList.toggle("err", !!m.failure);
+      dstatus.textContent = m.failure ? `⚠ ${m.failure.failed} príspevkov neohodnotených – pozri blok hore` : `Ohodnotených ${m.stats.scored} príspevkov`;
+      if (started) {
+        document.querySelectorAll(".anz-post[data-smeai]").forEach((postEl) => {
+          const id = postEl.dataset.postId, before = prev.get(id), now = data.get(id);
+          if (now && (!before || !before.answers) && now.answers) undecorate(postEl);
+        });
+        decorateAll();
+      }
       if (!started) {
         started = true;
         const p = readPlan(posts, m.readIds || []);
@@ -393,12 +439,15 @@
     };
     const h1 = document.querySelector("h1");
     let port = null, loading = false;
-    const panel = createPanel(h1 || topicEl, { placement: h1 ? "after" : "before", collapsed: true, compact: false, postsById, onRef, tracker, onLoad: (o) => load(o), onNoCache });
+    const panel = createPanel(h1 || topicEl, { placement: h1 ? "after" : "before", collapsed: true, compact: false, postsById, onRef, tracker, onLoad: (o) => load(o), onNoCache, onRetry: () => load({}) });
     const ensurePort = () => port || (port = connect(panel, (m) => { if (m.type === "state" || m.type === "error") loading = false; }));
 
     function onNoCache() {
       const n = panel.remote.postCount;
       panel.setStatus(n ? "Diskusia ešte nebola analyzovaná." : "Diskusia zatiaľ nemá príspevky.");
+      if (n && !settings.hasTypesafeKey) return panel.setBody(
+        el("div", { class: "muted", text: "Na ohodnotenie diskusie doplň TypeSafe API kľúč (a pre zhrnutie Gemini kľúč)." }),
+        el("button", { class: "btn", text: "Otvoriť nastavenia", onclick: openOptions }));
       if (n) panel.setBody(
         el("button", { class: "btn", text: `Načítať a ohodnotiť diskusiu (~${usd(estTypesafe(n))})`, onclick: () => load({}) }),
         el("div", { class: "meta", text: "Zhrnutie (Gemini) sa generuje zvlášť tlačidlom po ohodnotení." }));
@@ -468,6 +517,9 @@
     details { margin-top: 14px; } summary { cursor: pointer; font-weight: 600; font-size: 15px; }
     .summary p { margin: 6px 0; } .summary ul { margin: 6px 0; padding-left: 20px; } .summary li { margin: 4px 0; }
     .ref { color: var(--acc); font-size: 12px; text-decoration: none; margin-left: 4px; white-space: nowrap; }
+    .banner { margin: 10px 0 4px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); font-size: 13px; }
+    .banner[hidden] { display: none; }
+    .banner .actions { display: flex; gap: 8px; margin-top: 6px; } .banner .actions .btn { margin: 0; }
     .delta { margin-top: 10px; padding: 8px 10px; border: 1px dashed var(--bd); border-radius: 8px; font-size: 13px; }
     .muted { color: var(--mut); } .meta { color: var(--mut); font-size: 11px; margin-top: 8px; }
     .card { background: var(--card); border-left: 4px solid var(--gray); border-radius: 6px; padding: 10px 12px; margin: 8px 0; transition: box-shadow .3s; }

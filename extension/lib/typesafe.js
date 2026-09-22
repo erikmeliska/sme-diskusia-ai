@@ -186,7 +186,7 @@
           results.set(p.id, res.answers);
           if (own) { tokens += res.inputTokens; scoredNew++; } else cached++;
         } catch (e) {
-          errors.push({ id: p.id, error: String(e.message || e) });
+          errors.push({ id: p.id, error: String(e.message || e), status: e.status || null });
           if (e.status === 401 || e.status === 403) stop = true;
         }
         done++;
