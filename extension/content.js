@@ -5,7 +5,7 @@
   if (window.__smeaiLoaded) return;
   window.__smeaiLoaded = true;
 
-  const { fetchTopic, fetchAllPosts, readPlan } = globalThis.SmeAI;
+  const { fetchTopic, fetchAllPosts, readPlan, emptyFilter, isActive, hasFilter, toggleFilter, matchesFilter, planFilter, encodeFilter, decodeFilter } = globalThis.SmeAI;
   const topicEl = document.querySelector("[data-topic-id]");
   if (!topicEl || !topicEl.dataset.topicId) return;
 
@@ -16,6 +16,9 @@
   const KIND = { experience: "skúsenosť", argument: "argument", proposal: "návrh", question: "otázka", humor: "humor", attack: "útok", rant: "ventilovanie", other: "iné" };
   const STANCE = { agrees: "súhlasí s článkom", disputes: "spochybňuje článok", nuance: "dopĺňa kontext", none: "bez postoja" };
   const COLOR_LABEL = { green: "hodnotné", yellow: "priemerné", red: "slabé", low: "bez prínosu", hate: "xenofóbia", none: "neohodnotené" };
+  const FLAG_LABEL = { attack: "osobný útok", vulgar: "vulgarizmy" };
+  const DIM_LABELS = { color: COLOR_LABEL, kind: KIND, stance: STANCE, flag: FLAG_LABEL };
+  const plural = (n) => (n === 1 ? "príspevok" : n >= 2 && n <= 4 ? "príspevky" : "príspevkov");
 
   // ---------- pomocné ----------
   const el = (tag, attrs = {}, ...children) => {
@@ -83,7 +86,7 @@
   // Blok „AI prehľad diskusie“ (Shadow DOM) – rovnaký na článku aj v diskusii
   // =====================================================================
   // placement: "before" | "after" anchor; collapsed: začne zbalený; onLoad({summarize}) – stiahnuť a ohodnotiť (článok)
-  function createPanel(anchor, { placement = "before", collapsed = false, compact, postsById, onRef, tracker, onLoad, onNoCache, onRetry }) {
+  function createPanel(anchor, { placement = "before", collapsed = false, compact, postsById, onRef, tracker, onLoad, onNoCache, onRetry, pill }) {
     const host = el("div", { id: "smeai-panel" });
     const root = host.attachShadow({ mode: "open" });
     root.append(el("style", { text: PANEL_CSS }));
@@ -198,10 +201,14 @@
       } else setStatus(`Ohodnotených ${s.stats.scored} príspevkov${s.stats.hiddenByUs ? ` · ${s.stats.hiddenByUs} nevhodných` : ""}`);
       const basis = s.summary ? new Set(s.summary.basisIds) : null;
       const cards = s.topIds.map((id, i) => postCard(postsById.get(id), i + 1, s, basis));
-      const topSec = el(compact ? "details" : "section", { class: "top" },
+      const topSec = el(compact ? "details" : "section", { class: "top", "data-k": "top" },
         el(compact ? "summary" : "h3", { text: `Najhodnotnejšie príspevky (${s.topIds.length})` }),
         cards.length ? cards : el("div", { class: "muted", text: "Žiadne hodnotné príspevky." }));
-      const statsSec = el(compact ? "details" : "section", {}, el(compact ? "summary" : "h3", { text: "Štatistiky diskusie" }), statsGrid(s.stats));
+      const statsSec = el(compact ? "details" : "section", { "data-k": "stats" },
+        el(compact ? "summary" : "h3", { text: pill && compact ? "Štatistiky a filter" : "Štatistiky diskusie" }), statsGrid(s.stats, pill));
+      // prekreslenie (napr. po zmene filtra) nesmie zbaliť otvorené sekcie
+      const wasOpen = new Set([...body.querySelectorAll("details[open]")].map((d) => d.dataset.k));
+      [topSec, statsSec].forEach((d) => { if (d.tagName === "DETAILS" && wasOpen.has(d.dataset.k)) d.open = true; });
       const fresh = s.remotePostCount != null && s.snapRemoteTotal != null ? Math.max(0, s.remotePostCount - s.snapRemoteTotal) : null;
       const refresh = s.fromCache && onLoad
         ? el("div", { class: "delta" }, el("span", { class: "muted", text: "Zobrazujem uložený stav. " }),
@@ -216,6 +223,7 @@
       setStatus,
       progress,
       setTitle(t) { title.textContent = t; },
+      refresh() { if (last) render(last); },
       open() { panelEl.classList.remove("closed"); },
       append(node) { panelEl.querySelector(".content").append(node); },
       setHint(t) { hint.textContent = t; },
@@ -256,7 +264,7 @@
     };
   }
 
-  function statsGrid(s) {
+  function statsGrid(s, pill) {
     const rows = [
       ["Príspevky", `${s.active}${s.moderated ? ` (+${s.moderated} moderované)` : ""}`],
       ["Vlákna / reakcie", `${s.roots} / ${s.replies} (hĺbka ${s.maxDepth})`],
@@ -270,16 +278,28 @@
       ["Hlasy čitateľov", `👍 ${s.votesUp} · 👎 ${s.votesDown}`],
       ["Kvalita vs. 👍", s.qualityVsLikes != null ? `${s.qualityVsLikes.toFixed(2)} (Spearman, n=${s.qualityVsLikesN})` : "–"],
     ];
-    const bar = (obj, labels, cls) => {
-      const total = Object.values(obj).reduce((a, b) => a + b, 0) || 1;
-      return el("div", { class: "dist" }, Object.entries(obj).sort((a, b) => b[1] - a[1]).map(([k, n]) =>
-        el("span", { class: `chip ${cls ? cls + "-" + k : ""}`, title: `${n} príspevkov` }, `${labels[k] || k} ${Math.round((100 * n) / total)} %`)));
-    };
     return el("div", { class: "stats" },
       el("dl", {}, rows.map(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })])),
-      el("div", { class: "sub", text: "Kvalita" }), bar(s.colors, COLOR_LABEL, "c"),
-      el("div", { class: "sub", text: "Typ príspevkov" }), bar(s.kinds, KIND),
-      el("div", { class: "sub", text: "Postoj k článku" }), bar(s.stances, STANCE));
+      categoryPills(s, pill),
+      pill ? el("div", { class: "meta", text: mode === "article"
+        ? "Kliknutím na kategóriu otvoríš diskusiu vyfiltrovanú len na ňu."
+        : "Kliknutím na kategóriu vyfiltruješ diskusiu nižšie. V rámci skupiny platí ALEBO, medzi skupinami A ZÁROVEŇ." }) : null);
+  }
+
+  // Riadky kategórií (Kvalita / Typ / Postoj / Príznaky). pill(dim, key, text, cls, title) → prvok; bez neho len štítky.
+  function categoryPills(s, pill) {
+    const mk = pill || ((dim, k, text, cls, title) => el("span", { class: `chip ${cls}`, title }, text));
+    const bar = (obj, labels, dim, cls) => {
+      const total = s.scored || Object.values(obj).reduce((a, b) => a + b, 0) || 1; // % zo všetkých ohodnotených
+      return el("div", { class: "dist" }, Object.entries(obj).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) =>
+        mk(dim, k, `${labels[k] || k} ${n} · ${Math.round((100 * n) / total)} %`, cls ? `${cls}-${k}` : "", `${n} príspevkov`)));
+    };
+    const flags = { attack: s.attacks, vulgar: s.vulgar };
+    return el("div", { class: "cats" },
+      el("div", { class: "sub", text: "Kvalita" }), bar(s.colors, COLOR_LABEL, "color", "c"),
+      el("div", { class: "sub", text: "Typ príspevkov" }), bar(s.kinds, KIND, "kind"),
+      el("div", { class: "sub", text: "Postoj k článku" }), bar(s.stances, STANCE, "stance"),
+      Object.values(flags).some((n) => n > 0) ? [el("div", { class: "sub", text: "Príznaky" }), bar(flags, FLAG_LABEL, "flag")] : null);
   }
 
   function badgeText(v, a) {
@@ -312,12 +332,23 @@
       const node = document.querySelector(`.anz-post[data-post-id="${id}"]`);
       if (!node) return;
       node.classList.add("smeai-revealed");
+      // ak ho skrýva filter, odkry jeho vetvu
+      for (let li = node.closest("li.anz-posts__item"); li; li = li.parentElement.closest("li.anz-posts__item")) li.parentElement.classList.add("smeai-frev");
       node.scrollIntoView({ behavior: "smooth", block: "center" });
       node.classList.add("smeai-flash");
       setTimeout(() => node.classList.remove("smeai-flash"), 1500);
     };
+
+    // --- filter podľa kategórií ---
+    let filter = emptyFilter(), filterPlan = null, lastState = null, appliedCount = -1, catsOpen = false;
+    const revealedRuns = new Set();
+    const pill = (dim, key, text, cls, title) => el("button", {
+      class: `chip pill ${cls}${hasFilter(filter, dim, key) ? " on" : ""}`, title: `${title} – kliknutím ${hasFilter(filter, dim, key) ? "zrušíš" : "vyfiltruješ"}`,
+      onclick: () => setFilter(toggleFilter(filter, dim, key)),
+    }, text);
+
     let port = null;
-    const panel = createPanel(topicEl, { compact: true, postsById, onRef: scrollToPost, tracker, onRetry: () => port.postMessage(analyzeMsg(topic, posts, article)) });
+    const panel = createPanel(topicEl, { compact: true, postsById, onRef: scrollToPost, tracker, pill, onRetry: () => port.postMessage(analyzeMsg(topic, posts, article)) });
     panel.setStatus(`Načítaných ${posts.length} príspevkov, hodnotím…`);
 
     // --- dock s ovládaním ---
@@ -357,6 +388,83 @@
     }
     const decorateAll = () => document.querySelectorAll(".anz-post[data-post-id]").forEach(decorate);
 
+    // Strom vlákien z DOM sme.sk: každý príspevok je li.anz-posts__item vo vlastnom <ul> (wrap);
+    // odpovede sú ďalšie <ul> vnútri li rodiča. Súrodenci = susedné wrapy pod tým istým rodičom.
+    function buildTree() {
+      const nodes = new Map(), roots = [], byKey = new Map();
+      for (const li of document.querySelectorAll("li.anz-posts__item")) {
+        const post = li.querySelector(":scope > .anz-posts__item > .anz-post[data-post-id]");
+        if (!post) continue;
+        const node = { key: post.dataset.postId, li, post, wrap: li.parentElement, children: [] };
+        nodes.set(li, node);
+        byKey.set(node.key, node);
+        const parent = nodes.get(li.parentElement.closest("li.anz-posts__item"));
+        (parent ? parent.children : roots).push(node);
+      }
+      return { roots, byKey };
+    }
+
+    const F_CLASSES = ["smeai-fh", "smeai-fhead", "smeai-frev", "smeai-fm", "smeai-fctx"];
+    function applyFilter() {
+      document.querySelectorAll(".smeai-fmarker").forEach((n) => n.remove());
+      document.querySelectorAll(F_CLASSES.map((c) => "." + c).join(",")).forEach((n) => n.classList.remove(...F_CLASSES));
+      appliedCount = document.querySelectorAll(".anz-post[data-post-id]").length;
+      const on = isActive(filter);
+      html.classList.toggle("smeai-filter-on", on);
+      filterPlan = null;
+      if (on) {
+        const { roots, byKey } = buildTree();
+        filterPlan = planFilter(roots, (n) => matchesFilter(data.get(n.key), filter));
+        for (const [key, st] of filterPlan.state) {
+          const n = byKey.get(key);
+          if (st === "match") n.post.classList.add("smeai-fm");
+          else if (st === "context") n.post.classList.add("smeai-fctx");
+          else n.wrap.classList.add("smeai-fh");
+        }
+        // jeden riadok na skupinu susedných skrytých vlákien; vloží sa do prvého li skupiny
+        for (const run of filterPlan.runs) {
+          const members = run.keys.map((k) => byKey.get(k));
+          const head = members[0];
+          const open = revealedRuns.has(head.key);
+          head.wrap.classList.add("smeai-fhead");
+          if (open) members.forEach((m) => m.wrap.classList.add("smeai-frev"));
+          head.li.prepend(el("div", {
+            class: "smeai-fmarker", role: "button", tabindex: "0",
+            onclick: () => { open ? revealedRuns.delete(head.key) : revealedRuns.add(head.key); applyFilter(); },
+          }, open ? `▴ skryť ${run.count} ${plural(run.count)} mimo filtra` : `⋯ ${run.count} ${run.count === 1 ? "skrytý" : "skrytých"} ${plural(run.count)} – zobraziť`));
+        }
+      }
+      if (mo) mo.takeRecords(); // vlastné zmeny DOM nemajú spustiť ďalšie kolo
+      if (lastState) renderControls(lastState);
+    }
+
+    function setFilter(f, { scroll = false } = {}) {
+      filter = f;
+      revealedRuns.clear();
+      applyFilter();
+      panel.refresh();
+      try { history.replaceState(null, "", isActive(f) ? `#smeai-filter=${encodeFilter(f)}` : location.pathname + location.search); } catch (_) {}
+      if (scroll) jumpMatch(1, true);
+    }
+
+    // skok na ďalšiu / predchádzajúcu zhodu vzhľadom na aktuálnu pozíciu
+    function jumpMatch(dir, fromTop = false) {
+      const all = [...document.querySelectorAll(".anz-post.smeai-fm")].filter((p) => p.offsetParent !== null);
+      if (!all.length) return;
+      const y = (p) => p.getBoundingClientRect().top;
+      const t = fromTop ? all[0] : dir > 0 ? all.find((p) => y(p) > 90) || all[0] : [...all].reverse().find((p) => y(p) < -10) || all[all.length - 1];
+      t.scrollIntoView({ behavior: "smooth", block: "start" });
+      t.classList.add("smeai-flash");
+      setTimeout(() => t.classList.remove("smeai-flash"), 1200);
+    }
+
+    let mo = null;
+    const onMutations = () => {
+      decorateAll();
+      if (isActive(filter) && document.querySelectorAll(".anz-post[data-post-id]").length !== appliedCount) applyFilter();
+      mo.takeRecords();
+    };
+
     async function autoExpand() {
       for (let i = 0; i < 40; i++) {
         const btn = [...document.querySelectorAll("a.anz-btn, button.anz-btn")].find((b) => /ĎALŠÍCH|ďalších/i.test(b.innerText));
@@ -370,15 +478,38 @@
       }
     }
 
+    function filterBox(s) {
+      const on = isActive(filter), fp = filterPlan;
+      const active = on ? Object.entries(filter).flatMap(([dim, vals]) => vals.map((v) =>
+        el("button", { class: "chip pill on", title: "Odobrať z filtra", onclick: () => setFilter(toggleFilter(filter, dim, v)) }, `${(DIM_LABELS[dim] || {})[v] || v} ✕`))) : [];
+      const cats = el("details", { class: "cats-dock", ontoggle: (e) => { catsOpen = e.target.open; } },
+        el("summary", { text: on ? "Upraviť filter" : "Filtrovať podľa kategórie" }), categoryPills(s.stats, pill));
+      if (catsOpen) cats.open = true;
+      return el("div", { class: "filterbox" + (on ? " on" : "") },
+        on ? [
+          el("div", { class: "dist" }, el("strong", { text: "Filter:" }), active),
+          fp ? el("div", { class: "muted", text: fp.matched
+            ? `${fp.matched} ${fp.matched === 1 ? "zodpovedá" : "zodpovedajú"} · ${fp.context} ako kontext · ${fp.hidden} skrytých v ${fp.runs.length} ${fp.runs.length === 1 ? "skupine" : "skupinách"}`
+            : "Filtru nezodpovedá žiadny príspevok." }) : null,
+          el("div", { class: "actions" },
+            fp && fp.matched ? [el("button", { class: "btn small ghost", text: "↑", title: "Predchádzajúca zhoda", onclick: () => jumpMatch(-1) }),
+              el("button", { class: "btn small ghost", text: "↓ ďalšia zhoda", onclick: () => jumpMatch(1) })] : null,
+            el("button", { class: "btn small", text: "Zrušiť filter", onclick: () => setFilter(emptyFilter()) })),
+        ] : null,
+        cats);
+    }
+
     function renderControls(s) {
+      lastState = s;
       const readCount = plan.hide.size + plan.context.size;
       const hideBad = el("input", { type: "checkbox", checked: html.classList.contains("smeai-hide-on"), onchange: (e) => html.classList.toggle("smeai-hide-on", e.target.checked) });
       const readOn = html.classList.contains("smeai-hideread");
       controls.replaceChildren(
+        filterBox(s),
         el("label", { class: "toggle" }, hideBad, ` skrývať nevhodné (${s.stats.hiddenByUs})`),
         readCount
           ? el("div", { class: "readrow" },
-              el("span", { text: readOn ? `Skrytých ${readCount} prečítaných` : `Prečítaných z minula: ${readCount}` }),
+              el("span", { text: isActive(filter) ? `Prečítaných z minula: ${readCount} (pri filtri sa zobrazujú)` : readOn ? `Skrytých ${readCount} prečítaných` : `Prečítaných z minula: ${readCount}` }),
               el("button", { class: "btn small", text: readOn ? "Zobraziť" : "Skryť", onclick: () => { html.classList.toggle("smeai-hideread"); renderControls(s); } }))
           : el("div", { class: "muted", text: "Žiadne prečítané príspevky z minulých návštev." }),
         el("button", { class: "link", text: "Nastavenia", onclick: openOptions }));
@@ -406,6 +537,7 @@
           if (now && (!before || !before.answers) && now.answers) undecorate(postEl);
         });
         decorateAll();
+        if (isActive(filter)) applyFilter();
       }
       if (!started) {
         started = true;
@@ -414,8 +546,14 @@
         html.classList.toggle("smeai-hide-on", m.settings.hideHate || m.settings.hideLowQuality);
         html.classList.toggle("smeai-hideread", !!m.settings.hideRead);
         decorateAll();
-        new MutationObserver(decorateAll).observe(document.body, { childList: true, subtree: true });
-        if (m.settings.autoExpand) autoExpand();
+        mo = new MutationObserver(onMutations);
+        mo.observe(document.body, { childList: true, subtree: true });
+        // odkaz z článku: …/d/…#smeai-filter=kind:argument
+        const hashF = location.hash.match(/smeai-filter=([^&]+)/);
+        const fromHash = hashF ? decodeFilter(decodeURIComponent(hashF[1])) : null;
+        if (fromHash && isActive(fromHash)) setFilter(fromHash);
+        const expanded = m.settings.autoExpand ? autoExpand() : Promise.resolve();
+        if (fromHash && isActive(fromHash)) expanded.then(() => { applyFilter(); jumpMatch(1, true); });
       }
       renderControls(m);
     });
@@ -438,8 +576,12 @@
       setTimeout(() => c.classList.remove("flash"), 1200);
     };
     const h1 = document.querySelector("h1");
-    let port = null, loading = false;
-    const panel = createPanel(h1 || topicEl, { placement: h1 ? "after" : "before", collapsed: true, compact: false, postsById, onRef, tracker, onLoad: (o) => load(o), onNoCache, onRetry: () => load({}) });
+    let port = null, loading = false, topicLink = null;
+    // pill v štatistikách článku = odkaz na diskusiu vyfiltrovanú na danú kategóriu
+    const pill = (dim, key, text, cls, title) => topicLink
+      ? el("a", { class: `chip pill ${cls}`, title: `${title} – otvoriť diskusiu len s touto kategóriou`, target: "_top", href: `${topicLink}#smeai-filter=${encodeFilter(toggleFilter(emptyFilter(), dim, key))}` }, text)
+      : el("span", { class: `chip ${cls}`, title }, text);
+    const panel = createPanel(h1 || topicEl, { placement: h1 ? "after" : "before", collapsed: true, compact: false, postsById, onRef, tracker, pill, onLoad: (o) => load(o), onNoCache, onRetry: () => load({}) });
     const ensurePort = () => port || (port = connect(panel, (m) => { if (m.type === "state" || m.type === "error") loading = false; }));
 
     function onNoCache() {
@@ -471,6 +613,8 @@
       try {
         const t = await fetchTopic(window.fetch.bind(window), forumBase, topicId); // zadarmo – len metadáta fóra
         panel.remote.postCount = t.postCount;
+        topicLink = t.topicLink || null;
+        panel.refresh();
         panel.setHint(`${t.postCount} príspevkov`);
         if (t.topicLink) panel.append(el("a", { class: "open", href: t.topicLink, target: "_top", text: "Otvoriť celú diskusiu →" }));
       } catch (e) { panel.setHint(""); }
@@ -544,6 +688,15 @@
     .chip { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--card); border: 1px solid var(--bd); }
     .chip.c-green { border-color: var(--green); } .chip.c-yellow { border-color: var(--yellow); } .chip.c-red { border-color: var(--red); }
     .chip.c-low, .chip.c-hate { border-color: var(--gray); }
+    .pill { cursor: pointer; font: inherit; font-size: 11px; color: inherit; text-decoration: none; line-height: 1.5; }
+    .pill:hover { border-color: var(--acc); color: var(--acc); }
+    .pill.on, .pill.on:hover { background: var(--acc); border-color: var(--acc); color: #fff; }
+    .dock { max-height: 75vh; overflow: auto; }
+    .filterbox { margin: 6px 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--bd); }
+    .filterbox.on { padding: 8px; border: 1px solid var(--acc); border-radius: 8px; }
+    .filterbox .dist { align-items: center; }
+    .filterbox .actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; } .filterbox .actions .btn { margin: 0; }
+    .cats-dock { margin-top: 6px; } .cats-dock summary { font-size: 13px; }
     .costs dl { font-size: 12px; }
     .toggle { display: block; margin: 6px 0; }
   `;

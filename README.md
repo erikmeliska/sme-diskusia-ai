@@ -35,6 +35,22 @@ Pod nadpisom pribudne rozbaľovací blok **AI prehľad diskusie**. Bez kliknutia
 - **Skrývanie prečítaných:** príspevok, ktorý bol aspoň 1,5 s z polovice na obrazovke, sa pri ďalšej návšteve skryje. Uvidíš len nové, s tlačidlom „Skrytých N prečítaných – Zobraziť“. Prečítaný príspevok s novou reakciou zostane ako skrátený kontext.
 - Automaticky sa načítajú všetky príspevky, aj nad limitom 50.
 
+### Filter podľa kategórie
+| Filtrovaná diskusia | Kategórie v štatistikách |
+|---|---|
+| ![Diskusia vyfiltrovaná na hodnotné argumenty](docs/screenshots/07-diskusia-filter.png) | ![Klikateľné kategórie](docs/screenshots/08-filter-pills.png) |
+
+- Kliknutím na kategóriu v štatistikách alebo v plávajúcom paneli (kvalita, typ príspevku, postoj k článku, príznaky ako osobný útok či vulgarizmy) sa diskusia **vyfiltruje priamo v zozname**.
+- Viac kategórií naraz: v rámci skupiny platí ALEBO (argument alebo návrh), medzi skupinami A ZÁROVEŇ (hodnotné a argument).
+- **Hierarchia zostane zachovaná:**
+  - zhodný príspevok sa zobrazí celý,
+  - jeho predkovia, ktorí filter nespĺňajú, zostanú ako skrátený jednoriadkový **kontext**,
+  - susedné vlákna mimo filtra sa zlúčia do jedného riadku **„⋯ 22 skrytých príspevkov – zobraziť“**.
+
+  Namiesto stoviek skrytých príspevkov je tak medzi zhodami najviac jeden riadok.
+- Plávajúci panel ukáže, koľko príspevkov filtru zodpovedá, koľko je kontextu a koľko skrytých, s tlačidlami **↑ / ↓ ďalšia zhoda** a **Zrušiť filter**.
+- Filter je v URL (`#smeai-filter=color:green,kind:argument`), takže sa dá poslať ako odkaz. Kategória v bloku na stránke článku otvorí diskusiu už vyfiltrovanú.
+
 ### Nastavenia
 <img src="docs/screenshots/06-nastavenia.png" alt="Nastavenia rozšírenia" width="520">
 
@@ -107,7 +123,7 @@ Zaujímavosť: hodnotenie takmer nesúvisí s 👍 čitateľov (Spearman ~0 až 
 ## Vývoj a testy
 ```bash
 cd extension
-node --test tests/*.test.js                          # 25 testov: knižnice + service worker vo vm s falošným chrome.* a API
+node --test tests/*.test.js                          # 29 testov: knižnice, filter, service worker vo vm s falošným chrome.* a API
 node tests/build-test-bundle.mjs /tmp/bundle.js      # bundle na injektovanie do stránky (Playwright addScriptTag)
 ```
 Integračný test service workera overuje, že sa nič neplatí dvakrát:
@@ -116,7 +132,7 @@ Integračný test service workera overuje, že sa nič neplatí dvakrát:
 - pohľad z cache nevolá API,
 - zrušené kľúče dajú zrozumiteľnú chybu a čiastočné výsledky z cache.
 
-Test bundle spúšťa v stránke skutočný `background.js`; falošné sú len `chrome.*` a AI API. Takto vznikli aj screenshoty, s rozmazanými menami diskutujúcich.
+Test bundle spúšťa v stránke skutočný `background.js`; falošné sú len `chrome.*` a AI API. Takto vznikli aj screenshoty, s rozmazanými alebo zamaskovanými menami diskutujúcich.
 
 ## Obmedzenia
 - Selektory `.anz-post[data-post-id]`, `[data-topic-id]` a API `core-forum.sme.sk` nie sú verejne zdokumentované a môžu sa zmeniť.

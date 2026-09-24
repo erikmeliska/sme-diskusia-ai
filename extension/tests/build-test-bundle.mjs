@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 const ext = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (f) => readFileSync(path.join(ext, f), "utf8");
-const libs = ["lib/text.js", "lib/forum.js", "lib/typesafe.js", "lib/policy.js", "lib/stats.js", "lib/gemini.js", "lib/pricing.js"].map(read);
+const libs = ["lib/text.js", "lib/forum.js", "lib/typesafe.js", "lib/policy.js", "lib/stats.js", "lib/gemini.js", "lib/pricing.js", "lib/filter.js"].map(read);
 const bundle = [
   ...libs,
   read("tests/browser-shim.js"),

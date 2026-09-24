@@ -1,4 +1,4 @@
-# SME Diskusia AI (Chrome rozšírenie, MV3) – v0.3
+# SME Diskusia AI (Chrome rozšírenie, MV3) – v0.4
 
 Hodnotí príspevky v diskusiách na sme.sk (TypeSafe/Jev), zhŕňa najhodnotnejšie (Gemini) a ukazuje štatistiky aj náklady. Návrh a zistenia o API sme.sk sú v [PLAN.md](PLAN.md).
 
@@ -25,6 +25,20 @@ Hodnotí príspevky v diskusiách na sme.sk (TypeSafe/Jev), zhŕňa najhodnotnej
   - Ak je zapnuté *Skrývať prečítané*, pri ďalšej návšteve vidíš len nové príspevky.
   - Prečítaný príspevok s novou reakciou zostane ako skrátený riadok, aby mala reakcia kontext.
   - V plávajúcom paneli je „Skrytých N prečítaných“ a tlačidlo **Zobraziť / Skryť**.
+
+## Filter podľa kategórie
+- Pills v „Štatistiky a filter“ (a v plávajúcom paneli pod „Filtrovať podľa kategórie“) sú klikateľné. Kategórie: kvalita, typ príspevku, postoj k článku a príznaky (osobný útok, vulgarizmy).
+- V rámci kategórie platí ALEBO, medzi kategóriami A ZÁROVEŇ.
+- Logika je v [`lib/filter.js`](lib/filter.js) (čistá funkcia `planFilter`, testovaná bez DOM). Každý príspevok dostane jeden z troch stavov:
+
+  | stav | zobrazenie |
+  |---|---|
+  | **zhoda** | celý príspevok; zobrazí sa aj vtedy, keď by bol inak zbalený ako nevhodný |
+  | **kontext** | predok zhody, zobrazí sa skrátene na jeden riadok s označením „kontext“ |
+  | **skrytý** | celé vlákno sa skryje; susedné skryté vlákna na tej istej úrovni sa zlúčia do jedného riadku „⋯ N skrytých príspevkov – zobraziť“, ktorý ide rozbaliť aj späť zbaliť |
+- Pri aktívnom filtri sa ignoruje skrývanie prečítaných, lebo filter je explicitný dopyt.
+- Filter sa zapisuje do URL (`#smeai-filter=…`). Pill na stránke článku je odkaz na diskusiu s týmto filtrom.
+- Po načítaní ďalších príspevkov (tlačidlo „Zobraziť ďalších“) sa filter aplikuje znova.
 
 ## Cache (nič sa neplatí dvakrát)
 | kľúč | obsah | platnosť |
@@ -57,7 +71,7 @@ Neúspešné volania sa neukladajú do cache ani nezapočítavajú do nákladov.
 
 ## Vývoj a testy
 ```bash
-node --test tests/*.test.js                                          # 25 testov: lib/ + service worker vo vm s falošným chrome.* a API
+node --test tests/*.test.js                                          # 29 testov: lib/ (vrátane filtra) + service worker vo vm s falošným chrome.* a API
 TYPESAFE_API_KEY=... GEMINI_API_KEY=... node scripts/live-check.mjs  # živý TypeSafe + Gemini (potrebuje lokálne dáta PoC)
 node tests/build-test-bundle.mjs /tmp/bundle.js                      # bundle na injektovanie do stránky (Playwright addScriptTag)
 ```

@@ -15,13 +15,37 @@
 
 /* Prečítané z minulých návštev (trieda smeai-hideread na <html>) */
 .smeai-ctxph { display: none; font: italic 12px system-ui, sans-serif; color: #6b7280 !important; }
-.smeai-hideread .smeai-read:not(.smeai-revealed) { display: none !important; }
-.smeai-hideread .smeai-readctx:not(.smeai-revealed) { opacity: .55; }
-.smeai-hideread .smeai-readctx:not(.smeai-revealed) .anz-post__content-text,
-.smeai-hideread .smeai-readctx:not(.smeai-revealed) .anz-post__footer,
-.smeai-hideread .smeai-readctx:not(.smeai-revealed) .smeai-badge,
-.smeai-hideread .smeai-readctx:not(.smeai-revealed) .smeai-ph { display: none !important; }
-.smeai-hideread .smeai-readctx:not(.smeai-revealed) .smeai-ctxph { display: inline; }
+.smeai-hideread:not(.smeai-filter-on) .smeai-read:not(.smeai-revealed) { display: none !important; }
+.smeai-hideread:not(.smeai-filter-on) .smeai-readctx:not(.smeai-revealed) { opacity: .55; }
+.smeai-hideread:not(.smeai-filter-on) .smeai-readctx:not(.smeai-revealed) .anz-post__content-text,
+.smeai-hideread:not(.smeai-filter-on) .smeai-readctx:not(.smeai-revealed) .anz-post__footer,
+.smeai-hideread:not(.smeai-filter-on) .smeai-readctx:not(.smeai-revealed) .smeai-badge,
+.smeai-hideread:not(.smeai-filter-on) .smeai-readctx:not(.smeai-revealed) .smeai-ph { display: none !important; }
+.smeai-hideread:not(.smeai-filter-on) .smeai-readctx:not(.smeai-revealed) .smeai-ctxph { display: inline; }
 
 /* preskok zo zhrnutia na príspevok */
 .smeai-flash { box-shadow: 0 0 0 3px #7c3aed; transition: box-shadow .3s; }
+
+/* Filter podľa kategórie (trieda smeai-filter-on na <html>) */
+/* skryté vlákna: celý <ul> wrap; prvý v skupine ukáže len riadok „N skrytých“ */
+.smeai-fmarker { display: none; }
+.smeai-filter-on .smeai-fh:not(.smeai-fhead):not(.smeai-frev) { display: none !important; }
+.smeai-filter-on .smeai-fh.smeai-fhead:not(.smeai-frev) > li > :not(.smeai-fmarker) { display: none !important; }
+.smeai-filter-on .smeai-fhead > li > .smeai-fmarker {
+  display: block; margin: 6px 0; padding: 5px 10px; border: 1px dashed #b8b8c0; border-radius: 6px;
+  font: 12px/1.4 system-ui, sans-serif; color: #6b7280; background: rgba(124, 58, 237, .04); cursor: pointer; user-select: none;
+}
+.smeai-filter-on .smeai-fhead > li > .smeai-fmarker:hover { border-color: #7c3aed; color: #7c3aed; }
+/* kontext: predok zhody, skrátený na jeden riadok */
+.smeai-filter-on .anz-post.smeai-fctx:not(.smeai-revealed) { opacity: .6; }
+.smeai-filter-on .smeai-fctx:not(.smeai-revealed) .anz-post__content {
+  display: -webkit-box !important; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+}
+.smeai-filter-on .smeai-fctx:not(.smeai-revealed) .anz-post__footer,
+.smeai-filter-on .smeai-fctx:not(.smeai-revealed) .smeai-ph,
+.smeai-filter-on .smeai-fctx:not(.smeai-revealed) .smeai-ctxph { display: none !important; }
+.smeai-filter-on .smeai-fctx .smeai-badge::before { content: "kontext · "; }
+/* zhoda: zobraz aj príspevky inak zbalené ako nevhodné (filter je explicitný dopyt) */
+.smeai-filter-on .smeai-post.smeai-fm.smeai-hidden .anz-post__content-text { display: inline !important; }
+.smeai-filter-on .smeai-post.smeai-fm.smeai-hidden .smeai-ph { display: none !important; }
+.smeai-filter-on .smeai-post.smeai-fm.smeai-hidden { opacity: 1; }
